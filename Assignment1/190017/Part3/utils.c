@@ -70,8 +70,6 @@ void spawnTeams(void) {
 			}
 			// do not write to commpipe
 			teamPlay();
-
-			exit(0);
 		}
 	}
 }
@@ -196,7 +194,7 @@ int match(int team1, int team2) {
 	// do a toss
 
 	// ask for two values
-	int p = WR, q = WR;
+	int p = 1, q = 1;
 	assert(write(teams[team1].commpipe[1], &p, sizeof(int)) == sizeof(int));
 	assert(write(teams[team2].commpipe[1], &q, sizeof(int)) == sizeof(int));
 	// read two values
