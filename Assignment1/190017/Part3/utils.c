@@ -11,11 +11,8 @@ const char *team_names[] = {
 	"Pakistan", "South Africa", "England",     "Bangladesh" // Group B
 };
 
-#define WKT "7"
-#define TERMINATE "8"
-
 void spawnTeams(void) {
-	// a process for each tem
+	// a process for each team
 	for (int i = 0; i < 8; i++) {
 		// assign name
 		strcpy(teams[i].name, team_names[i]);
@@ -73,6 +70,8 @@ void spawnTeams(void) {
 			}
 			// do not write to commpipe
 			teamPlay();
+
+			exit(0);
 		}
 	}
 }
@@ -107,6 +106,18 @@ void conductGroupMatches(void) {
 				perror("close");
 				exit(-1);
 			}
+
+			// set final teams
+			if (groupNo == 0) {
+				assert(read(groupPipe[groupNo][0], &finalTeam1, sizeof(int)) ==
+						sizeof(int));
+			} else {
+				assert(read(groupPipe[groupNo][0], &finalTeam2, sizeof(int)) ==
+						sizeof(int));
+			}
+
+			// close pipes
+			assert(close(groupPipe[groupNo][0]) >= 0);
 		} else {
 			// group processes
 
@@ -124,7 +135,6 @@ void conductGroupMatches(void) {
 			int firstTeam, secondTeam, matchWinner;
 			for (int i = 0; i < 4; i++) {
 				for (int j = i + 1; j < 4; j++) {
-
 					// prepare for non-local processing
 					firstTeam = i + groupNo * 4;
 					secondTeam = j + groupNo * 4;
@@ -158,19 +168,26 @@ void conductGroupMatches(void) {
 			groupLeader += groupNo * 4;
 
 			// 32-bit integer: 4 bytes
-			assert(write(groupPipe[groupNo][1], &groupLeader, 4) == 4);
+			assert(write(groupPipe[groupNo][1], &groupLeader, sizeof(int)) ==
+					sizeof(int));
+
+			// close write end too
+			if (close(groupPipe[groupNo][1]) < 0) {
+				perror("close");
+				exit(-1);
+			}
 
 			// self-terminate
 			exit(0);
 		}
 	}
 }
-void teamPlay(void) {}
 
 void endTeam(int teamID) {
 	// write to the write end of commpipe
 	// of the team which need to stop
-	assert(write(teams[teamID].commpipe[1], TERMINATE, 2) == 2);
+	int signal = 0;
+	assert(write(teams[teamID].commpipe[1], &signal, sizeof(int)) == sizeof(int));
 }
 
 int match(int team1, int team2) {
@@ -178,10 +195,14 @@ int match(int team1, int team2) {
 
 	// do a toss
 
+	// ask for two values
+	int p = WR, q = WR;
+	assert(write(teams[team1].commpipe[1], &p, sizeof(int)) == sizeof(int));
+	assert(write(teams[team2].commpipe[1], &q, sizeof(int)) == sizeof(int));
 	// read two values
 	int i, j;
-	assert(read(teams[team1].matchpipe[0], &i, 4) == 4);
-	assert(read(teams[team2].matchpipe[0], &j, 4) == 4);
+	assert(read(teams[team1].matchpipe[0], &i, sizeof(int)) == sizeof(int));
+	assert(read(teams[team2].matchpipe[0], &j, sizeof(int)) == sizeof(int));
 
 	// decide toss winner
 	int BatTeam = team1, BowlTeam = team2;
@@ -192,51 +213,56 @@ int match(int team1, int team2) {
 	}
 
 	// prepare file Name
-	char matchFileName[64] = "\0";
-	sprintf(matchFileName,"%sv%s",team_names[BatTeam],team_names[BowlTeam]);
+	char matchFileName[64] = {'\0'};
+	sprintf(matchFileName, "test/%d/out/%sv%s", test, team_names[BatTeam],
+			team_names[BowlTeam]);
 
 	// if final: different groups
-	if((team2 - team1)>=4){
-		strcat(matchFileName,"-Final");
+	if ((team2 - team1) >= 4) {
+		strcat(matchFileName, "-Final");
 	}
-	
-	// file to write the results
-	int matchFile = open(matchFileName,O_CREAT | O_RDWR,0644);
 
+	// file to write the results
+	int matchFile = open(matchFileName, O_CREAT | O_RDWR, 0644);
 
 	int winnerTeam = -1;
 	int targetScore = -1;
 	// Two innings
-	for(int i = 1;i<=2;i++){
+	for (int i = 1; i <= 2; i++) {
 
 		// Declare start of inning
-		char inning[64] = "\0";
-		sprintf(inning,"Innings%d: %s bats",i,team_names[BatTeam]);
-		int byteCount = strlen(inning);
-		assert(write(matchFile,inning,byteCount) == byteCount);
+		char inning[64] = {'\0'};
+
+		sprintf(inning, "Innings%d: %s bats\n", i, team_names[BatTeam]);
+		assert(write(matchFile, inning, strlen(inning)) == strlen(inning));
 
 		int batsManId = 1;
 		int batsManScore = 0;
 		int totalScore = 0;
 
 		// batting team hits, bowling team bowls
-		int hit,ball;
+		int hit, ball;
 		// 20 over inning
-		for(int j = 0;j<120;j++){
-			// assume integer size is 4 bytes in the machine
-			assert(read(teams[BatTeam].matchpipe[0],&hit,4)==4);
-			assert(read(teams[BowlTeam].matchpipe[0],&ball,4)==4);
+		for (int j = 0; j < 120; j++) {
+			// ask for two values
+			int p = WR, q = WR;
+			assert(write(teams[BatTeam].commpipe[1], &p, sizeof(int)) == sizeof(int));
+			assert(write(teams[BowlTeam].commpipe[1], &q, sizeof(int)) ==
+					sizeof(int));
+			// read result
+			assert(read(teams[BatTeam].matchpipe[0], &hit, sizeof(int)) ==
+					sizeof(int));
+			assert(read(teams[BowlTeam].matchpipe[0], &ball, sizeof(int)) ==
+					sizeof(int));
 
-			if(hit != ball){
+			if (hit != ball) {
 				totalScore += hit;
 				batsManScore += hit;
-			}
-			else{
+			} else {
 				// wicket down
-				char wicket[64] = "\0";
-				sprintf(wicket,"\n%d:%d",batsManId,batsManScore);
-				byteCount = strlen(wicket);
-				assert(write(matchFile,wicket,byteCount)==byteCount);
+				char wicket[64] = {'\0'};
+				sprintf(wicket, "%d:%d\n", batsManId, batsManScore);
+				assert(write(matchFile, wicket, strlen(wicket)) == strlen(wicket));
 
 				// new batsman
 				batsManId += 1;
@@ -244,59 +270,102 @@ int match(int team1, int team2) {
 			}
 
 			// chasing team reaches the target
-			if((i==2) && (totalScore >= targetScore)) break;
+			if ((i == 2) && (totalScore > targetScore))
+				break;
 
 			// all wicket down
-			if( batsManId == 11) break;
+			if (batsManId == 11)
+				break;
 		}
 
 		// last batsman is not out
-		if(batsManId != 11){
-			char wicket[64] = "\0";
-			sprintf(wicket,"\n%d:%d*",batsManId,batsManScore);
-			byteCount = strlen(wicket);
-			assert(write(matchFile,wicket,byteCount)==byteCount);
+		if (batsManId != 11) {
+			char wicket[64] = {'\0'};
+			sprintf(wicket, "%d:%d*\n", batsManId, batsManScore);
+			assert(write(matchFile, wicket, strlen(wicket)) == strlen(wicket));
 		}
 
-		// target for chasing team
-		targetScore = totalScore; 
-
 		// inning summary
-		char inningSummary[64] = "\0";
-		sprintf(inningSummary,"\n%s Total: %d",team_names[BatTeam],totalScore);
-		byteCount = strlen(inning);
-		assert(write(matchFile,inningSummary,byteCount) == byteCount);
-
+		char inningSummary[64] = {'\0'};
+		sprintf(inningSummary, "%s TOTAL: %d\n", team_names[BatTeam], totalScore);
+		assert(write(matchFile, inningSummary, strlen(inningSummary)) ==
+				strlen(inningSummary));
 		// swap the order
 		int temp = BatTeam;
 		BatTeam = BowlTeam;
 		BowlTeam = temp;
 
-
 		// match finished
-		if(i==2){
-			char matchSummary[64] = "\0";
-			if(totalScore > targetScore){
+		if (i == 2) {
+			char matchSummary[128] = {'\0'};
+			if (totalScore > targetScore) {
 				// bowling team wins
 				winnerTeam = BowlTeam;
-				sprintf(matchSummary,"\n%s beats %s by %d wickets",team_names[BowlTeam],team_names[BatTeam],11 - batsManId);
-			}
-			else if(totalScore == targetScore){
+				sprintf(matchSummary, "%s beats %s by %d wickets\n",
+						team_names[BowlTeam], team_names[BatTeam], 11 - batsManId);
+			} else if (totalScore == targetScore) {
 				// tie: lower index team wins
 				winnerTeam = team1;
-				sprintf(matchSummary,"\n%s beats %s",team_names[team1],team_names[team2]);
-			}
-			else{
+				sprintf(matchSummary, "TIE: %s beats %s\n", team_names[team1],
+						team_names[team2]);
+			} else {
 				// batting team wins
 				winnerTeam = BatTeam;
-				sprintf(matchSummary,"\n%s beats %s by %d runs",team_names[BatTeam],team_names[BowlTeam],targetScore-totalScore);
+				sprintf(matchSummary, "%s beats %s by %d runs\n", team_names[BatTeam],
+						team_names[BowlTeam], targetScore - totalScore);
 			}
 
-			byteCount = strlen(matchSummary);
-			assert(write(matchFile,matchSummary,byteCount) == byteCount);
+			assert(write(matchFile, matchSummary, strlen(matchSummary)) ==
+					strlen(matchSummary));
 		}
+
+		// target for chasing team
+		targetScore = totalScore;
+		// prepare for second inning
+		batsManScore = 0;
+		batsManId = 1;
+		totalScore = 0;
 	}
 
-	assert(close(matchFile)>=0);
+	assert(close(matchFile) >= 0);
 	return winnerTeam;
+}
+
+void teamPlay(void) {
+	// process type defines the index
+
+	// prepare the path of input directory
+	char path[64] = {'\0'};
+	sprintf(path, "test/%d/inp/%s", test, team_names[processType]);
+
+	int shotFd = open(path, O_RDONLY);
+	if (shotFd < 0) {
+		perror("open");
+		exit(-1);
+	}
+
+	while (1) {
+		int signal, shot;
+		char hit;
+		// wait for request
+		assert(read(teams[processType].commpipe[0], &signal, sizeof(int)) ==
+				sizeof(int));
+
+		// close request
+		if (signal == 0)
+			break;
+
+		// fullfill the request
+		// 1 character at a time
+		assert(read(shotFd, &hit, sizeof(char)) == sizeof(char));
+		shot = hit - '0';
+		assert(write(teams[processType].matchpipe[1], &shot, sizeof(int)) ==
+				sizeof(int));
+	}
+
+	// done with this process
+	assert(close(shotFd) >= 0);
+	assert(close(teams[processType].commpipe[0]) >= 0);
+	assert(close(teams[processType].matchpipe[1]) >= 0);
+	exit(0);
 }

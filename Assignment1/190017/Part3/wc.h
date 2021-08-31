@@ -18,11 +18,10 @@
 #define NUM_TEAMS 8
 #define TEAM_NAME_SIZE 14
 
-
 struct team {
-  char name[TEAM_NAME_SIZE];
-  int matchpipe[2];
-  int commpipe[2];
+	char name[TEAM_NAME_SIZE];
+	int matchpipe[2];
+	int commpipe[2];
 };
 
 void teamPlay(void);
