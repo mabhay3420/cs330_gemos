@@ -1,0 +1,8 @@
+{
+	"files.associations": {
+		"pipe.h": "c",
+		"file.h": "c",
+		"context.h": "c",
+		"types.h": "c"
+	}
+}
