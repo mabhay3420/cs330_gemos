@@ -23,7 +23,8 @@ struct pipe_info_global
     // TODO:: Add members as per your need...
     int g_read_start;
     int g_write_start;
-    int num_process; // no of processes sharing pipe
+    int num_read_process;
+    int num_write_process; // no of processes sharing pipe
 };
 
 // Pipe information structure.
@@ -53,9 +54,10 @@ struct pipe_info *alloc_pipe_info()
 	 *  Initialize global fields for this pipe.
 	 *
 	 */
-    pipe->pipe_global.g_read_start = 0;
-    pipe->pipe_global.g_write_start = 0;
-    pipe->pipe_global.num_process = 1;
+    pipe->pipe_global.g_read_start = -1;
+    pipe->pipe_global.g_write_start = -1;
+    pipe->pipe_global.num_read_process = 1;
+    pipe->pipe_global.num_write_process = 1;
 
     for (int i = 0; i < MAX_PIPE_PROC; i++)
     {
@@ -90,6 +92,32 @@ int do_pipe_fork(struct exec_context *child, struct file *filep)
 	 *  Incase of any error return -EOTHERS.
 	 *
 	 */
+    if (filep->mode & O_READ)
+    {
+        if (filep->pipe->pipe_global.num_read_process > MAX_PIPE_PROC)
+        {
+            return -EOTHERS;
+        }
+        else
+        {
+            filep->pipe->pipe_global.num_read_process += 1;
+        }
+    }
+    else if (filep->mode & O_WRITE)
+    {
+        if (filep->pipe->pipe_global.num_write_process > MAX_PIPE_PROC)
+        {
+            return -EOTHERS;
+        }
+        else
+        {
+            filep->pipe->pipe_global.num_write_process += 1;
+        }
+    }
+    else
+    {
+        return -EOTHERS;
+    }
 
     // Return successfully.
     return 0;
@@ -112,8 +140,28 @@ long pipe_close(struct file *filep)
 	 *
 	 */
 
-    int ret_value;
+    // ! Still can't figure out per process variables
 
+    // Update variables according to the end being closed
+    if (filep->mode & O_READ)
+    {
+        filep->pipe->pipe_global.num_read_process -= 1;
+    }
+    else if (filep->mode & O_WRITE)
+    {
+        filep->pipe->pipe_global.num_write_process -= 1;
+    }
+    else
+    {
+        return -EOTHERS;
+    }
+    // Pipe is useless
+    if ((filep->pipe->pipe_global.num_read_process == 0) && (filep->pipe->pipe_global.num_write_process == 0))
+    {
+        free_pipe(filep);
+    }
+
+    int ret_value;
     // Close the file and return.
     ret_value = file_close(filep); // DO NOT MODIFY THIS LINE.
 
@@ -203,10 +251,11 @@ int pipe_read(struct file *filep, char *buff, u32 count)
         return -EINVAL;
     }
 
-    int check_buffer = is_valid_mem_range((unsigned long)buff, count, 1);
+    // write to buffer
+    int check_buffer = is_valid_mem_range((unsigned long)buff, count, 2);
     if (check_buffer != 1)
     {
-        printk("Bad memory location of buffer \n");
+        printk("Bad memory location of read buffer\n");
         return check_buffer;
     }
 
@@ -222,8 +271,10 @@ int pipe_read(struct file *filep, char *buff, u32 count)
     int read_start = filep->pipe->pipe_global.g_read_start;
     int write_start = filep->pipe->pipe_global.g_write_start;
 
-    while ((bytes_read < count) && (read_start != write_start))
+    while (bytes_read < count)
     {
+        if (read_start == write_start)
+            break;
         buff[bytes_read] = filep->pipe->pipe_global.pipe_buff[read_start];
         bytes_read++;
         read_start++;
@@ -262,10 +313,11 @@ int pipe_write(struct file *filep, char *buff, u32 count)
         return -EINVAL;
     }
 
-    int check_buffer = is_valid_mem_range((unsigned long)buff, count, 2);
+    // read from buffer
+    int check_buffer = is_valid_mem_range((unsigned long)buff, count, 1);
     if (check_buffer != 1)
     {
-        printk("Bad memory location of buffer \n");
+        printk("Bad memory location of write buffer \n");
         return check_buffer;
     }
 
@@ -279,8 +331,21 @@ int pipe_write(struct file *filep, char *buff, u32 count)
     int read_start = filep->pipe->pipe_global.g_read_start;
     int write_start = filep->pipe->pipe_global.g_write_start;
 
-    while ((bytes_written < count) && (read_start != write_start))
+    while (bytes_written < count)
     {
+        if (read_start == write_start)
+        {
+            //initialize
+            if (write_start == -1)
+            {
+                read_start = filep->pipe->pipe_global.g_read_start = 0;
+                write_start = 0;
+            }
+            // pipe buffer is full
+            else
+                break;
+        }
+
         filep->pipe->pipe_global.pipe_buff[write_start] = buff[bytes_written];
         bytes_written++;
         write_start++;
