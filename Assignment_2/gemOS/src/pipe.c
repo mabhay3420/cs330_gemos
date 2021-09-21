@@ -21,8 +21,8 @@ struct pipe_info_global
     char *pipe_buff; // Pipe buffer: DO NOT MODIFY THIS.
 
     // TODO:: Add members as per your need...
-    int g_read_end;
-    int g_write_end;
+    int g_read_start;
+    int g_write_start;
     int num_process; // no of processes sharing pipe
 };
 
@@ -53,6 +53,15 @@ struct pipe_info *alloc_pipe_info()
 	 *  Initialize global fields for this pipe.
 	 *
 	 */
+    pipe->pipe_global.g_read_start = 0;
+    pipe->pipe_global.g_write_start = 0;
+    pipe->pipe_global.num_process = 1;
+
+    for (int i = 0; i < MAX_PIPE_PROC; i++)
+    {
+        pipe->pipe_per_proc[i].p_read_end = 0;
+        pipe->pipe_per_proc[i].p_write_end = 0;
+    }
 
     // Return the pipe.
     return pipe;
@@ -128,6 +137,40 @@ int is_valid_mem_range(unsigned long buff, u32 count, int access_bit)
 	 */
 
     int ret_value = -EBADMEM;
+    int flag = 0, i;
+    struct mm_segment mm_segment;
+    struct vm_area *vm_area;
+    struct exec_context *exec_context = get_current_ctx(); // Should be non-null
+
+    // mm_segment
+    for (i = 0; i < MAX_MM_SEGS; i++)
+    {
+        mm_segment = exec_context->mms[i];
+        if ((mm_segment.start <= buff) && (mm_segment.end >= buff + count - 1))
+        {
+            flag = mm_segment.access_flags;
+            break;
+        }
+    }
+
+    // VM Area
+    if (flag == 0)
+    {
+        vm_area = exec_context->vm_area;
+        while (vm_area != NULL)
+        {
+            if ((vm_area->vm_start <= buff) && (vm_area->vm_end >= buff + count - 1))
+            {
+                flag = vm_area->access_flags;
+                break;
+            }
+            vm_area = vm_area->vm_next;
+        }
+    }
+
+    // Opened in proper mode
+    if (flag & access_bit)
+        ret_value = 1;
 
     // Return the finding.
     return ret_value;
@@ -160,33 +203,35 @@ int pipe_read(struct file *filep, char *buff, u32 count)
         return -EINVAL;
     }
 
-    if (buff == NULL)
+    int check_buffer = is_valid_mem_range((unsigned long)buff, count, 1);
+    if (check_buffer != 1)
     {
-        printk("buffer pointer is null\n");
-        return -EOTHERS;
+        printk("Bad memory location of buffer \n");
+        return check_buffer;
     }
 
     // Validate file object's access right
-    if (filep->mode != O_READ)
+    if (!(filep->mode & O_READ))
     {
         printk("no read permission for pipe file object\n");
         return -EACCES;
     }
 
     int bytes_read = 0;
-    int read_end = filep->pipe->pipe_global.g_read_end;
-    int write_end = filep->pipe->pipe_global.g_write_end;
 
-    while ((bytes_read < count) && (read_end != write_end))
+    int read_start = filep->pipe->pipe_global.g_read_start;
+    int write_start = filep->pipe->pipe_global.g_write_start;
+
+    while ((bytes_read < count) && (read_start != write_start))
     {
-        buff[bytes_read] = filep->pipe->pipe_global.pipe_buff[read_end];
+        buff[bytes_read] = filep->pipe->pipe_global.pipe_buff[read_start];
         bytes_read++;
-        read_end++;
-        read_end %= MAX_PIPE_SIZE; // circle around
+        read_start++;
+        read_start %= MAX_PIPE_SIZE; // circle around
     }
 
     // update information
-    filep->pipe->pipe_global.g_read_end = read_end;
+    filep->pipe->pipe_global.g_read_start = read_start;
 
     // Return no of bytes read.
     return bytes_read;
@@ -217,31 +262,33 @@ int pipe_write(struct file *filep, char *buff, u32 count)
         return -EINVAL;
     }
 
-    if (buff == NULL)
+    int check_buffer = is_valid_mem_range((unsigned long)buff, count, 2);
+    if (check_buffer != 1)
     {
-        printk("buffer pointer is null\n");
-        return -EOTHERS;
+        printk("Bad memory location of buffer \n");
+        return check_buffer;
     }
 
-    if(filep->mode != O_WRITE){
+    if (!(filep->mode & O_WRITE))
+    {
         printk("no write access for pipe file object\n");
         return -EACCES;
     }
 
     int bytes_written = 0;
-    int read_end = filep->pipe->pipe_global.g_read_end;
-    int write_end = filep->pipe->pipe_global.g_write_end;
+    int read_start = filep->pipe->pipe_global.g_read_start;
+    int write_start = filep->pipe->pipe_global.g_write_start;
 
-    while ((bytes_written < count) && (read_end != write_end))
+    while ((bytes_written < count) && (read_start != write_start))
     {
-        filep->pipe->pipe_global.pipe_buff[write_end] = buff[bytes_written];
+        filep->pipe->pipe_global.pipe_buff[write_start] = buff[bytes_written];
         bytes_written++;
-        write_end++;
-        write_end %= MAX_PIPE_SIZE; // circle around
+        write_start++;
+        write_start %= MAX_PIPE_SIZE; // circle around
     }
 
     // update information
-    filep->pipe->pipe_global.g_write_end= write_end;
+    filep->pipe->pipe_global.g_write_start = write_start;
 
     // Return no of bytes written.
     return bytes_written;
@@ -296,30 +343,28 @@ int create_pipe(struct exec_context *current, int *fd)
     // Create two file objects for both ends by invoking the alloc_file() function.
     read_file = alloc_file();
     write_file = alloc_file();
-    current->files[read_fd] = read_file;
-    current->files[write_fd] = write_file;
-    fd[0] = read_fd;
-    fd[1] = write_fd;
 
     // allocate and initialize pipe_info object
     pi_object = alloc_pipe_info();
-    pi_object->pipe_global.g_read_end = 0;
-    pi_object->pipe_global.g_write_end = 0;
-    pi_object->pipe_global.num_process = 1;
-    pi_object->pipe_per_proc[0].p_read_end = 0;
-    pi_object->pipe_per_proc[0].p_write_end = 0;
 
     // Fill the fields for those file objects like type, fops, etc.
     read_file->type = PIPE;
     read_file->mode = O_READ;
     read_file->fops->close = pipe_close; // & is not required for function pointers
     read_file->fops->read = pipe_read;   // no write required
+    read_file->pipe = pi_object;
 
     write_file->type = PIPE;
     write_file->mode = O_WRITE;
     write_file->fops->close = pipe_close;
     write_file->fops->write = pipe_write; // no read required
+    write_file->pipe = pi_object;
 
+    // Fill the valid file descriptor in *fd param.
+    current->files[read_fd] = read_file;
+    current->files[write_fd] = write_file;
+    fd[0] = read_fd;
+    fd[1] = write_fd;
     // Simple return.
     return 0;
 }
