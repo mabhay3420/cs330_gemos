@@ -23,6 +23,7 @@ struct pipe_info_global
     // TODO:: Add members as per your need...
     int g_read_end;
     int g_write_end;
+    int num_process; // no of processes sharing pipe
 };
 
 // Pipe information structure.
@@ -46,12 +47,12 @@ struct pipe_info *alloc_pipe_info()
     pipe->pipe_global.pipe_buff = buffer;
 
     /**
-     *  TODO:: Initializing pipe fields
-     *  
-     *  Initialize per process fields for this pipe.
-     *  Initialize global fields for this pipe.
-     *
-     */
+	 *  TODO:: Initializing pipe fields
+	 *
+	 *  Initialize per process fields for this pipe.
+	 *  Initialize global fields for this pipe.
+	 *
+	 */
 
     // Return the pipe.
     return pipe;
@@ -71,15 +72,15 @@ int do_pipe_fork(struct exec_context *child, struct file *filep)
 {
 
     /**
-     *  TODO:: Implementation for fork handler
-     *
-     *  You may need to update some per process or global info for the pipe.
-     *  This handler will be called twice since pipe has 2 file objects.
-     *  Also consider the limit on no of processes a pipe can have.
-     *  Return 0 on success.
-     *  Incase of any error return -EOTHERS.
-     *
-     */
+	 *  TODO:: Implementation for fork handler
+	 *
+	 *  You may need to update some per process or global info for the pipe.
+	 *  This handler will be called twice since pipe has 2 file objects.
+	 *  Also consider the limit on no of processes a pipe can have.
+	 *  Return 0 on success.
+	 *  Incase of any error return -EOTHERS.
+	 *
+	 */
 
     // Return successfully.
     return 0;
@@ -90,17 +91,17 @@ long pipe_close(struct file *filep)
 {
 
     /**
-     *  TODO:: Implementation of Pipe Close
-     *
-     *  Close the read or write end of the pipe depending upon the file
-     *      object's mode.
-     *  You may need to update some per process or global info for the pipe.
-     *  Use free_pipe() function to free pipe buffer and pipe object,
-     *      whenever applicable.
-     *  After successful close, it return 0.
-     *  Incase of any error return -EOTHERS.
-     *
-     */
+	 *  TODO:: Implementation of Pipe Close
+	 *
+	 *  Close the read or write end of the pipe depending upon the file
+	 *      object's mode.
+	 *  You may need to update some per process or global info for the pipe.
+	 *  Use free_pipe() function to free pipe buffer and pipe object,
+	 *      whenever applicable.
+	 *  After successful close, it return 0.
+	 *  Incase of any error return -EOTHERS.
+	 *
+	 */
 
     int ret_value;
 
@@ -116,15 +117,15 @@ int is_valid_mem_range(unsigned long buff, u32 count, int access_bit)
 {
 
     /**
-     *  TODO:: Implementation for buffer memory range checking
-     *
-     *  Check whether passed memory range is suitable for read or write.
-     *  If access_bit == 1, then it is asking to check read permission.
-     *  If access_bit == 2, then it is asking to check write permission.
-     *  If range is valid then return 1.
-     *  Incase range is not valid or have some permission issue return -EBADMEM.
-     *
-     */
+	 *  TODO:: Implementation for buffer memory range checking
+	 *
+	 *  Check whether passed memory range is suitable for read or write.
+	 *  If access_bit == 1, then it is asking to check read permission.
+	 *  If access_bit == 2, then it is asking to check write permission.
+	 *  If range is valid then return 1.
+	 *  Incase range is not valid or have some permission issue return -EBADMEM.
+	 *
+	 */
 
     int ret_value = -EBADMEM;
 
@@ -137,21 +138,55 @@ int pipe_read(struct file *filep, char *buff, u32 count)
 {
 
     /**
-     *  TODO:: Implementation of Pipe Read
-     *
-     *  Read the data from pipe buffer and write to the provided buffer.
-     *  If count is greater than the present data size in the pipe then just read
-     *       that much data.
-     *  Validate file object's access right.
-     *  On successful read, return no of bytes read.
-     *  Incase of Error return valid error code.
-     *       -EACCES: In case access is not valid.
-     *       -EINVAL: If read end is already closed.
-     *       -EOTHERS: For any other errors.
-     *
-     */
+	 *  TODO:: Implementation of Pipe Read
+	 *
+	 *  Read the data from pipe buffer and write to the provided buffer.
+	 *  If count is greater than the present data size in the pipe then just read
+	 *       that much data.
+	 *  Validate file object's access right.
+	 *  On successful read, return no of bytes read.
+	 *  Incase of Error return valid error code.
+	 *       -EACCES: In case access is not valid.
+	 *       -EINVAL: If read end is already closed.
+	 *       -EOTHERS: For any other errors.
+	 *
+	 */
+    // ! Non-Blocking Function
+
+    // read end is already closed
+    if (filep == NULL)
+    {
+        printk("read end already closed\n");
+        return -EINVAL;
+    }
+
+    if (buff == NULL)
+    {
+        printk("buffer pointer is null\n");
+        return -EOTHERS;
+    }
+
+    // Validate file object's access right
+    if (filep->mode != O_READ)
+    {
+        printk("no read permission for pipe file object\n");
+        return -EACCES;
+    }
 
     int bytes_read = 0;
+    int read_end = filep->pipe->pipe_global.g_read_end;
+    int write_end = filep->pipe->pipe_global.g_write_end;
+
+    while ((bytes_read < count) && (read_end != write_end))
+    {
+        buff[bytes_read] = filep->pipe->pipe_global.pipe_buff[read_end];
+        bytes_read++;
+        read_end++;
+        read_end %= MAX_PIPE_SIZE; // circle around
+    }
+
+    // update information
+    filep->pipe->pipe_global.g_read_end = read_end;
 
     // Return no of bytes read.
     return bytes_read;
@@ -162,21 +197,51 @@ int pipe_write(struct file *filep, char *buff, u32 count)
 {
 
     /**
-     *  TODO:: Implementation of Pipe Write
-     *
-     *  Write the data from the provided buffer to the pipe buffer.
-     *  If count is greater than available space in the pipe then just write data
-     *       that fits in that space.
-     *  Validate file object's access right.
-     *  On successful write, return no of written bytes.
-     *  Incase of Error return valid error code.
-     *       -EACCES: In case access is not valid.
-     *       -EINVAL: If write end is already closed.
-     *       -EOTHERS: For any other errors.
-     *
-     */
+	 *  TODO:: Implementation of Pipe Write
+	 *
+	 *  Write the data from the provided buffer to the pipe buffer.
+	 *  If count is greater than available space in the pipe then just write data
+	 *       that fits in that space.
+	 *  Validate file object's access right.
+	 *  On successful write, return no of written bytes.
+	 *  Incase of Error return valid error code.
+	 *       -EACCES: In case access is not valid.
+	 *       -EINVAL: If write end is already closed.
+	 *       -EOTHERS: For any other errors.
+	 *
+	 */
+
+    if (filep == NULL)
+    {
+        printk("write end is already closed\n");
+        return -EINVAL;
+    }
+
+    if (buff == NULL)
+    {
+        printk("buffer pointer is null\n");
+        return -EOTHERS;
+    }
+
+    if(filep->mode != O_WRITE){
+        printk("no write access for pipe file object\n");
+        return -EACCES;
+    }
 
     int bytes_written = 0;
+    int read_end = filep->pipe->pipe_global.g_read_end;
+    int write_end = filep->pipe->pipe_global.g_write_end;
+
+    while ((bytes_written < count) && (read_end != write_end))
+    {
+        filep->pipe->pipe_global.pipe_buff[write_end] = buff[bytes_written];
+        bytes_written++;
+        write_end++;
+        write_end %= MAX_PIPE_SIZE; // circle around
+    }
+
+    // update information
+    filep->pipe->pipe_global.g_write_end= write_end;
 
     // Return no of bytes written.
     return bytes_written;
@@ -187,26 +252,27 @@ int create_pipe(struct exec_context *current, int *fd)
 {
 
     /**
-     *  TODO:: Implementation of Pipe Create
-     *
-     *  Find two free file descriptors.
-     *  Create two file objects for both ends by invoking the alloc_file() function. 
-     *  Create pipe_info object by invoking the alloc_pipe_info() function and
-     *       fill per process and global info fields.
-     *  Fill the fields for those file objects like type, fops, etc.
-     *  Fill the valid file descriptor in *fd param.
-     *  On success, return 0.
-     *  Incase of Error return valid Error code.
-     *       -ENOMEM: If memory is not enough.
-     *       -EOTHERS: Some other errors.
-     *
-     */
+	 *  TODO:: Implementation of Pipe Create
+	 *
+	 *  Find two free file descriptors.
+	 *  Create two file objects for both ends by invoking the alloc_file() function.
+	 *  Create pipe_info object by invoking the alloc_pipe_info() function and
+	 *       fill per process and global info fields.
+	 *  Fill the fields for those file objects like type, fops, etc.
+	 *  Fill the valid file descriptor in *fd param.
+	 *  On success, return 0.
+	 *  Incase of Error return valid Error code.
+	 *       -ENOMEM: If memory is not enough.
+	 *       -EOTHERS: Some other errors.
+	 *
+	 */
 
-    int read_fd = -1;
-    int write_fd = -1;
+    int i, read_fd = -1, write_fd = -1;
+    struct file *read_file, *write_file;
+    struct pipe_info *pi_object;
 
     // Find two free file descriptors
-    for (int i = 0; i < MAX_OPEN_FILES; i++)
+    for (i = 3; i < MAX_OPEN_FILES; i++)
     {
         if (current->files[i] == NULL)
         {
@@ -221,6 +287,38 @@ int create_pipe(struct exec_context *current, int *fd)
             }
         }
     }
+
+    if (read_fd == -1 || write_fd == -1)
+    {
+        return -ENOMEM;
+    }
+
+    // Create two file objects for both ends by invoking the alloc_file() function.
+    read_file = alloc_file();
+    write_file = alloc_file();
+    current->files[read_fd] = read_file;
+    current->files[write_fd] = write_file;
+    fd[0] = read_fd;
+    fd[1] = write_fd;
+
+    // allocate and initialize pipe_info object
+    pi_object = alloc_pipe_info();
+    pi_object->pipe_global.g_read_end = 0;
+    pi_object->pipe_global.g_write_end = 0;
+    pi_object->pipe_global.num_process = 1;
+    pi_object->pipe_per_proc[0].p_read_end = 0;
+    pi_object->pipe_per_proc[0].p_write_end = 0;
+
+    // Fill the fields for those file objects like type, fops, etc.
+    read_file->type = PIPE;
+    read_file->mode = O_READ;
+    read_file->fops->close = pipe_close; // & is not required for function pointers
+    read_file->fops->read = pipe_read;   // no write required
+
+    write_file->type = PIPE;
+    write_file->mode = O_WRITE;
+    write_file->fops->close = pipe_close;
+    write_file->fops->write = pipe_write; // no read required
 
     // Simple return.
     return 0;

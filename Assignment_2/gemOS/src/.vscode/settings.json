@@ -1,0 +1,7 @@
+{
+	"files.associations": {
+		"memory.h": "c",
+		"lib.h": "c",
+		"file.h": "c"
+	}
+}
