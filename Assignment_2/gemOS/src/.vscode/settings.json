@@ -2,6 +2,7 @@
 	"files.associations": {
 		"memory.h": "c",
 		"lib.h": "c",
-		"file.h": "c"
+		"file.h": "c",
+		"context.h": "c"
 	}
 }

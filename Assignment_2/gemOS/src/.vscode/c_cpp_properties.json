@@ -9,7 +9,7 @@
             "defines": [],
             "cStandard": "gnu17",
             "cppStandard": "gnu++14",
-            "intelliSenseMode": "macos-clang-x86"
+            "intelliSenseMode": "linux-clang-x86"
         }
     ],
     "version": 4
