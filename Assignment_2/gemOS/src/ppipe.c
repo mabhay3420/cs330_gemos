@@ -13,6 +13,7 @@ struct ppipe_info_per_process
     int valid; // such a shame to not have a bool
     u32 pid;
     int front;
+    int queue_empty;
     int read_status;
     int write_status;
 };
@@ -26,7 +27,6 @@ struct ppipe_info_global
     // TODO:: Add members as per your need...
     int front;
     int rear;
-    int is_flushed;
 };
 
 // Persistent pipe structure.
@@ -62,7 +62,8 @@ struct ppipe_info *alloc_ppipe_info()
     ppipe->ppipe_per_proc[0].valid = 1;
     ppipe->ppipe_per_proc[0].read_status = 1;
     ppipe->ppipe_per_proc[0].write_status = 1;
-    ppipe->ppipe_per_proc[0].front = -1;
+    ppipe->ppipe_per_proc[0].front = 0;
+    ppipe->ppipe_per_proc[0].queue_empty = 1;
 
     // Return the ppipe.
     return ppipe;
@@ -92,7 +93,8 @@ int do_ppipe_fork(struct exec_context *child, struct file *filep)
      *
      */
 
-    int child_index = -1, parent_index = -1, i;
+    // find a free index
+    int child_index = -1, parent_index = -1, first_free_index = -1, i;
     int prev_read_status, prev_write_status;
     u32 cpid = child->pid;
     u32 ppid = child->ppid;
@@ -100,18 +102,30 @@ int do_ppipe_fork(struct exec_context *child, struct file *filep)
     {
         if ((filep->ppipe->ppipe_per_proc[i].valid == 0) && (child_index == -1))
         {
-            child_index = i;
+            first_free_index = i;
         }
         if ((filep->ppipe->ppipe_per_proc[i].valid) && (filep->ppipe->ppipe_per_proc[i].pid == ppid))
         {
             parent_index = i;
         }
+        // already initialized
+        if ((filep->ppipe->ppipe_per_proc[i].valid) && (filep->ppipe->ppipe_per_proc[i].pid == cpid))
+        {
+            child_index = i;
+        }
     }
 
     // limit on no of processes reached
-    if (child_index == -1 || parent_index == -1)
+    if (((first_free_index == -1) && (child_index == -1)) || (parent_index == -1))
         return -EOTHERS;
 
+    // Initialization needed
+    if (child_index == -1)
+    {
+        child_index = first_free_index;
+    }
+
+    // permissions
     if (filep->mode & O_READ)
     {
         prev_write_status = filep->ppipe->ppipe_per_proc[child_index].write_status;
@@ -172,6 +186,7 @@ long ppipe_close(struct file *filep)
     // update variable according to the end being closed
     if (filep->mode & O_READ)
     {
+        filep->ppipe->ppipe_per_proc[process_index].queue_empty = 1;
         filep->ppipe->ppipe_per_proc[process_index].read_status = 0;
     }
     else if (filep->mode & O_WRITE)
@@ -219,11 +234,15 @@ int do_flush_ppipe(struct file *filep)
 
     //
     int reclaimed_bytes = 0, avail_bytes, i;
-    int process_front;
+    int process_front, queue_empty;
     int global_front = filep->ppipe->ppipe_global.front;
     int global_rear = filep->ppipe->ppipe_global.rear;
-    int curr_ppipe_size = (global_rear - global_front + 1 + MAX_PPIPE_SIZE) % MAX_PPIPE_SIZE;
+    int curr_ppipe_size = (global_rear - global_front + MAX_PPIPE_SIZE) % MAX_PPIPE_SIZE + 1;
 
+    // printk("===========flush started===========\n");
+    // printk("global front: %d\n", global_front);
+    // printk("global rear: %d\n", global_rear);
+    // printk("current pipe size = %d\n", curr_ppipe_size);
     // empty ppipe: nothing to flush
     if ((global_front == -1) && (global_rear == -1))
         return reclaimed_bytes;
@@ -233,15 +252,23 @@ int do_flush_ppipe(struct file *filep)
         reclaimed_bytes = curr_ppipe_size;
     }
 
+    int read_end_open = 0, process_read_status;
     for (i = 0; i < MAX_PPIPE_PROC; i++)
     {
         if (!(filep->ppipe->ppipe_per_proc[i].valid))
             continue;
 
         process_front = filep->ppipe->ppipe_per_proc[i].front;
-        if (process_front == -1)
+        queue_empty = filep->ppipe->ppipe_per_proc[i].queue_empty;
+
+        // keep track of whether to return 0 or not
+        process_read_status = filep->ppipe->ppipe_per_proc[i].read_status;
+        if (process_read_status)
+            read_end_open += 1;
+        // printk("process front: %d\n", process_front);
+        // essentially we can free whole pipe
+        if (queue_empty)
         {
-            // essentially we can free whole pipe
             continue;
         }
 
@@ -254,11 +281,22 @@ int do_flush_ppipe(struct file *filep)
         }
     }
 
+    if(read_end_open==0){
+        return 0;
+    }
+    // printk("calculated bytes that can be reclaimed:%d\n",reclaimed_bytes);
     if (reclaimed_bytes == curr_ppipe_size)
     {
         // empty ppipe
         global_front = -1;
         global_rear = filep->ppipe->ppipe_global.rear = -1;
+
+        // reset all process values
+        for (int j = 0; j < MAX_PPIPE_PROC; j++)
+        {
+            filep->ppipe->ppipe_per_proc[i].front = 0;
+            filep->ppipe->ppipe_per_proc[i].queue_empty = 1;
+        }
     }
     else
     {
@@ -336,10 +374,14 @@ int ppipe_read(struct file *filep, char *buff, u32 count)
 
     // reading is local to process
     int process_front = filep->ppipe->ppipe_per_proc[process_index].front;
+    int queue_empty = filep->ppipe->ppipe_per_proc[process_index].queue_empty;
     int global_rear = filep->ppipe->ppipe_global.rear;
 
+    // printk("===========read started===========\n");
+    // printk("global rear: %d\n", global_rear);
+    // printk("process front: %d\n", process_front);
     // empty queue
-    if (process_front == -1)
+    if (queue_empty)
     {
         return 0;
     }
@@ -352,16 +394,17 @@ int ppipe_read(struct file *filep, char *buff, u32 count)
         // nothing to read
         if (process_front == global_rear)
         {
-            process_front = -1;
-            break;
+            queue_empty = 1;
         }
-
         process_front = (process_front + 1) % MAX_PPIPE_SIZE;
+
+        if (queue_empty)
+            break;
     }
 
     // update information
     filep->ppipe->ppipe_per_proc[process_index].front = process_front;
-
+    filep->ppipe->ppipe_per_proc[process_index].queue_empty = queue_empty;
     // Return no of bytes read.
     return bytes_read;
 }
@@ -430,6 +473,10 @@ int ppipe_write(struct file *filep, char *buff, u32 count)
     int global_front = filep->ppipe->ppipe_global.front;
     int global_rear = filep->ppipe->ppipe_global.rear;
 
+    // printk("===========write started===========\n");
+    // printk("global front: %d\n", global_front);
+    // printk("global rear: %d\n", global_rear);
+
     // queue full
     if (global_front == (global_rear + 1) % MAX_PPIPE_SIZE)
     {
@@ -444,12 +491,6 @@ int ppipe_write(struct file *filep, char *buff, u32 count)
         if ((global_front == -1) && (global_rear == -1))
         {
             global_front = filep->ppipe->ppipe_global.front = 0;
-
-            // process front initialization
-            for (int i = 0; i < MAX_PPIPE_SIZE; i++)
-            {
-                filep->ppipe->ppipe_per_proc[i].front = 0;
-            }
             global_rear = 0;
         }
         else
@@ -471,6 +512,21 @@ int ppipe_write(struct file *filep, char *buff, u32 count)
     // update information
     filep->ppipe->ppipe_global.rear = global_rear;
 
+    // every time something is written, the process which were
+    // previously empty are bound to become usable again
+    if (bytes_written > 0)
+    {
+        // process front initialization
+        for (int i = 0; i < MAX_PPIPE_SIZE; i++)
+        {
+            if (filep->ppipe->ppipe_per_proc[i].valid == 0)
+                continue;
+            if (filep->ppipe->ppipe_per_proc[i].read_status)
+            {
+                filep->ppipe->ppipe_per_proc[i].queue_empty = 0;
+            }
+        }
+    }
     // Return no of bytes written.
     return bytes_written;
 }

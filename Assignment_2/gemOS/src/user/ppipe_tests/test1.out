@@ -1,0 +1,10 @@
+P write: 3000
+P read: 2000
+C read: 1500
+P write: 1096
+P flush: 1500
+P write: 1500
+P read: 3596
+C flush: 0
+C read: 4096
+C flush: 4096

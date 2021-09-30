@@ -1,0 +1,4 @@
+P write: 4096
+P read: 4096
+C read: 500
+P read: 0

@@ -1,0 +1,6 @@
+P write: 1000
+P read: 500
+P close: 0
+C read: 100
+C close: 0
+P flush: 0

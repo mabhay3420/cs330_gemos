@@ -89,36 +89,58 @@ int do_pipe_fork(struct exec_context *child, struct file *filep)
 	 */
 
 	// find a free index
-	int child_index = -1, parent_index = -1, i;
+	int child_index = -1, parent_index = -1, first_free_index = -1, i;
 	u32 cpid = child->pid;
 	u32 ppid = child->ppid;
 	for (i = 0; i < MAX_PIPE_PROC; i++)
 	{
 		if ((filep->pipe->pipe_per_proc[i].valid == 0) && (child_index == -1))
 		{
-			child_index = i;
+			first_free_index = i;
 		}
 		if ((filep->pipe->pipe_per_proc[i].valid) && (filep->pipe->pipe_per_proc[i].pid == ppid))
 		{
 			parent_index = i;
 		}
+		// already initialized
+		if ((filep->pipe->pipe_per_proc[i].valid) && (filep->pipe->pipe_per_proc[i].pid == cpid))
+		{
+			child_index = i;
+		}
 	}
 
 	// limit on no of processes reached
-	if (child_index == -1 || parent_index == -1)
+	if (((first_free_index == -1) && (child_index == -1)) || (parent_index == -1))
 		return -EOTHERS;
+
+	// Initialization needed
+	if (child_index == -1)
+	{
+		child_index = first_free_index;
+	}
 
 	if (filep->mode & O_READ)
 	{
 		filep->pipe->pipe_per_proc[child_index].pid = child->pid;
 		filep->pipe->pipe_per_proc[child_index].read_status = filep->pipe->pipe_per_proc[parent_index].read_status;
 		filep->pipe->pipe_per_proc[child_index].valid = 1;
+
+		// printk("child pid: %d\n", child->pid);
+		// printk("parent pid:%d\n", child->ppid);
+		// printk("child index:%d\n", child_index);
+		// printk("parent index:%d\n", parent_index);
+		// printk("parent read status: %d\n", filep->pipe->pipe_per_proc[parent_index].read_status);
 	}
 	else if (filep->mode & O_WRITE)
 	{
 		filep->pipe->pipe_per_proc[child_index].pid = child->pid;
 		filep->pipe->pipe_per_proc[child_index].write_status = filep->pipe->pipe_per_proc[parent_index].write_status;
 		filep->pipe->pipe_per_proc[child_index].valid = 1;
+		// printk("child pid: %d\n", child->pid);
+		// printk("parent pid:%d\n", child->ppid);
+		// printk("child index:%d\n", child_index);
+		// printk("parent index:%d\n", parent_index);
+		// printk("parent write status: %d\n", filep->pipe->pipe_per_proc[parent_index].write_status);
 	}
 	else
 	{
@@ -326,6 +348,10 @@ int pipe_read(struct file *filep, char *buff, u32 count)
 		return 0;
 	}
 
+	// printk("=======read starts=======\n");
+	// printk("count: %d\n",count);
+	// printk("front: %d\n",front);
+	// printk("rear: %d\n",rear);
 	while (bytes_read < count)
 	{
 		buff[bytes_read] = filep->pipe->pipe_global.pipe_buff[front];
@@ -394,10 +420,13 @@ int pipe_write(struct file *filep, char *buff, u32 count)
 		return -EOTHERS;
 	}
 
-	// read end is already closed
+	// write end is already closed
 	if (filep->pipe->pipe_per_proc[process_index].write_status == 0)
 	{
 		printk("write end already closed\n");
+		// printk("current pid: %d\n", get_current_ctx()->pid);
+		// printk("parent pid: %d\n", get_current_ctx()->ppid);
+		// printk("write status : %d\n", filep->pipe->pipe_per_proc[process_index].write_status);
 		return -EINVAL;
 	}
 
@@ -419,6 +448,11 @@ int pipe_write(struct file *filep, char *buff, u32 count)
 
 	int front = filep->pipe->pipe_global.front;
 	int rear = filep->pipe->pipe_global.rear;
+
+	// printk("=======write starts=======\n");
+	// printk("count: %d\n",count);
+	// printk("front: %d\n",front);
+	// printk("rear: %d\n",rear);
 
 	// queue full
 	if (front == (rear + 1) % MAX_PIPE_SIZE)

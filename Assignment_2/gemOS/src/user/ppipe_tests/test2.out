@@ -1,0 +1,11 @@
+P_k write: 1000
+P_j read: 500
+P_k read: 200
+P_k write: 1000
+P_k flush: 0
+P_i close: 0
+P_i flush: 200
+P_k read: 1800
+P_j write: 2196
+P_k read: 2196
+P_j write: 100

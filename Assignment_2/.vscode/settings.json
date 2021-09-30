@@ -3,6 +3,16 @@
 		"pipe.h": "c",
 		"file.h": "c",
 		"context.h": "c",
-		"types.h": "c"
+		"types.h": "c",
+		"*.tcc": "c",
+		"exception": "c",
+		"memory_resource": "c",
+		"fstream": "c",
+		"iosfwd": "c",
+		"new": "c",
+		"ostream": "c",
+		"sstream": "c",
+		"streambuf": "c",
+		"ulib.h": "c"
 	}
 }

@@ -1,0 +1,3 @@
+P write (before fork): 20
+P read: -1
+C read: -1

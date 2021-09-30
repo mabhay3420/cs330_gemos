@@ -1,0 +1,29 @@
+O write: 4096
+O read: 2000
+O flush: 2000
+O write: 1000
+O read: 2096
+P read: 200
+C read: 100
+P flush: 2196
+C read: 900
+P write: 500
+C write: 2696
+P W close: 0
+P write: -4
+P write: -1
+C R close: 0
+C read: -4
+C read: -1
+C W close: 0
+P flush: 100
+P write: -1
+C write: -1
+P read: 300
+C read: 250
+P flush: 300
+P R close: 0
+P flush: -1
+P R close: -1
+P read:-1
+P write:-1
