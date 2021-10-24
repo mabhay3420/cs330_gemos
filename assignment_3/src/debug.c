@@ -115,75 +115,29 @@ void debugger_on_fork(struct exec_context *child_ctx) {
 // Any process can call this be called by any func as we
 // are only reading the code here
 u64 get_value_at_address(u64 addr) {
+  printk("request to get a value\n");
   u64 value;
-  asm("mov (%1) %0" : "=r"(value) : "r"(addr) : "memory");
+  asm("mov (%1), %0;" : "=r"(value) : "r"(addr) : "memory");
+  printk("requested value returned\n");
   return value;
 }
 
 // only kernel mode
 void set_value_at_address(u64 addr, u64 value) {
-  asm("mov %1 (%0)" : : "r"(addr), "r"(value) : "memory");
+  printk("request to set a value\n");
+  asm("mov %1, (%0);" : : "r"(addr), "r"(value) : "memory");
+  printk("value set successfully\n");
 }
-
-void update_call_stack() {
-  struct exec_context *child_context, *parent_context;
-  struct debug_info *dbg_info;
-  u64 entry_address, last_ret_addr, curr_ret_addr, curr_addr, curr_rbp;
-  struct stack_func_info *curr, *caller, *last_caller;
-
-  child_context = get_current_ctx();
-  parent_ctx = get_ctx_by_pid(child_ctx->ppid);
-  dbg_info = parent_ctx->dbg;
-
-  // atleast main is on stack always
-
-  // ! updates happen only at breakpoints
-  if (dbg_info->call_stack->bp != 1) prune_call_stack();
-
-  last_ret_addr = dbg_info->call_stack->ret_address;
-  curr_rbp = child_context->regs.rbp;
-  curr_addr = get_value_at_address(child_context->regs.entry_rip);
-  curr_ret_addr = get_value_at_address(curr_rbp + 8);
-
-  curr = alloc_stack_func_info();
-  caller = NULL;
-  last_caller = dbg_info->call_stack;
-  curr->addr = curr_addr;
-  curr->ret_address = curr_ret_addr;
-  curr->bp = 1;  // has a breakpoint
-  dbg_info->call_stack = curr;
-
-  // starts from the function one above current
-  while (1) {
-    // rbp contains the stack address containing the previous rbp
-    curr_rbp = get_value_at_address(curr_rbp);
-    curr_ret_addr = get_value_at_address(curr_rbp + 8);
-
-    if (curr_ret_addr == last_ret_addr) {
-      curr->caller = last_caller;
-      break;
-    }
-
-    caller = alloc_stack_func_info();
-    caller->ret_address = curr_ret_addr;
-    caller->bp = 0;
-    curr->caller = caller;
-    curr = caller;
-  }
-
-  // we are done
-}
-
 // remove all the functions which are not on the call stack
 void prune_call_stack() {
+  printk("someone wants to prune call stack\n");
   struct exec_context *child_context, *parent_context;
   struct debug_info *dbg_info;
   struct stack_func_info *curr, *caller, *last_caller;
 
   child_context = get_current_ctx();
-  parent_ctx = get_ctx_by_pid(child_ctx->ppid);
-  dbg_info = parent_ctx->dbg;
-  struct stack_func_info *curr, *caller;
+  parent_context = get_ctx_by_pid(child_context->ppid);
+  dbg_info = parent_context->dbg;
 
   curr = dbg_info->call_stack;
   if (curr == NULL) return;
@@ -202,11 +156,70 @@ void prune_call_stack() {
   dbg_info->call_stack = curr;
 }
 
+// !!! Handler main() properly
+void update_call_stack() {
+  printk("someone wants to update call stack\n");
+  struct exec_context *child_context, *parent_context;
+  struct debug_info *dbg_info;
+  u64 entry_address, last_ret_addr, curr_ret_addr, curr_addr, curr_rbp;
+  struct stack_func_info *curr, *caller, *last_caller;
+
+  child_context = get_current_ctx();
+  parent_context = get_ctx_by_pid(child_context->ppid);
+  dbg_info = parent_context->dbg;
+
+  // atleast main is on stack always
+
+  // ! updates happen only at breakpoints
+  if (dbg_info->call_stack->bp != 1) prune_call_stack();
+
+  last_ret_addr = dbg_info->call_stack->ret_address;
+  curr_rbp = child_context->regs.rbp;
+  curr_addr = child_context->regs.entry_rip;
+  curr_ret_addr = get_value_at_address(curr_rbp + 8);
+
+  curr = alloc_stack_func_info();
+  last_caller = dbg_info->call_stack;
+  caller = last_caller;
+  curr->addr = curr_addr;
+  curr->ret_address = curr_ret_addr;
+  curr->bp = 1;  // has a breakpoint
+  dbg_info->call_stack = curr;
+
+  printk("starting to create the call stack list\n");
+  // starts from the function one above current
+  while (1) {
+    if (caller->caller == NULL) {
+      printk("reached the end of list \n");
+      curr->caller = last_caller;
+      return;
+    }
+    // rbp contains the stack address containing the previous rbp
+    curr_rbp = get_value_at_address(curr_rbp);
+    curr_ret_addr = get_value_at_address(curr_rbp + 8);
+
+    if (curr_ret_addr == last_ret_addr) {
+      printk("reached the end of call stack list\n");
+      curr->caller = last_caller;
+      break;
+    }
+
+    caller = alloc_stack_func_info();
+    caller->ret_address = curr_ret_addr;
+    caller->bp = 0;
+    curr->caller = caller;
+    curr = caller;
+  }
+
+  // we are done
+}
+
 // get the information about a breakpoint
 // ! better pass the head of list
 void get_breakpoint_info(struct breakpoint_info *head, void *addr,
                          struct breakpoint_info **curr,
                          struct breakpoint_info **prev) {
+  // addr = (u64)addr;
   *curr = NULL, *prev = NULL;
   if (head == NULL) return;
   if (head->addr == addr) {
@@ -243,52 +256,68 @@ long int3_handler(struct exec_context *ctx) {
   struct exec_context *parent_ctx;
   struct debug_info *dbg_info;
   struct breakpoint_info *curr, *prev;
-  u64 entry_addr, end_handler, curr_rbp, ret_addr;
+  u64 entry_addr, end_handler, curr_rbp, ret_addr, rip_value;
 
   parent_ctx = get_ctx_by_pid(ctx->ppid);
   dbg_info = parent_ctx->dbg;
   curr = NULL;
   prev = NULL;
-
+  printk("child hits int3_handler\n");
   // Size of INT3 is 1 byte
   ctx->regs.entry_rip -= 1;
+  // rip_value = ctx->regs.entry_rip;
+  // asm("mov %0,%%rip;" : : "r"(rip_value) : "memory");
 
   // if (debug_info == NULL) return -1;
 
-  entry_addr = get_value_at_address(ctx->regs.entry_rip);
+  entry_addr = ctx->regs.entry_rip;
   end_handler = ctx->dbg->end_handler;
   curr_rbp = ctx->regs.rbp;
 
   //  Fix current instruction and place breakpoint on the
   // previous place again
   if (dbg_info->mode == SINGLE_STEP) {
+    printk("debugger raised error to restore breakpoints\n");
     if (entry_addr == end_handler + 1) {
+      printk("fixing end_handler()\n");
       // remove INT3
       set_value_at_address(entry_addr, dbg_info->end_second);
+      printk("removed INT3 inserted before");
       // insert INT3
-      set_value_at_address(end_handler,
-                           (dbg_info->end_first && 0xFFFFFF00) || INT3_OPCODE)
+      printk("inserting breakpoint at end handler again\n");
+      set_value_at_address(
+          end_handler,
+          (dbg_info->end_first & 0xFFFFFFFFFFFFFF00) | INT3_OPCODE);
+      printk("success\n");
     } else {
+      printk("fixing start of function\n");
       get_breakpoint_info(dbg_info->head, entry_addr - 1, &curr, &prev);
       // remove INT3
       set_value_at_address(entry_addr, curr->second_inst);
+      printk("removed INT3 inserted before");
 
       // if breakpoint is still enabled, recover it
       if (curr->end_breakpoint_enable) {
+        printk("inserting breakpoint again\n");
         set_value_at_address(
-            entry_addr - 1, (dbg_info->end_first && 0xFFFFFF00) || INT3_OPCODE);
+            entry_addr - 1,
+            (dbg_info->end_first & 0xFFFFFFFFFFFFFF00) | INT3_OPCODE);
+        printk("success\n");
       }
     }
 
     // child should continue;
     dbg_info->mode = DONE;
-    return 0;
+    ctx->state = READY;
+    schedule(ctx);
+    // return 0;
   }
 
   // Now Function can hit from two locations:
 
   // 1. Start of the function
   if (entry_addr != end_handler) {
+    printk("debugge hits the breakpoint at start of function\n");
     update_call_stack();
     get_breakpoint_info(dbg_info->head, entry_addr, &curr, &prev);
 
@@ -300,6 +329,7 @@ long int3_handler(struct exec_context *ctx) {
   }
   // 2. End of function
   else {
+    printk("child hits breakpoint at end\n");
     // the function will be at the end of call_stack
     ret_addr = dbg_info->call_stack->ret_address;
     prune_call_stack();
@@ -308,7 +338,7 @@ long int3_handler(struct exec_context *ctx) {
     asm volatile(
         "push %0;"
         "push %1;"
-        "mov %%rsp %%rbp"
+        "mov %%rsp, %%rbp;"
         :
         : "r"(ret_addr), "r"(curr_rbp)
         : "memory");
@@ -332,6 +362,7 @@ void debugger_on_exit(struct exec_context *ctx) {
   // debugger
   if (ctx != NULL && ctx->dbg != NULL) {
     // cleaning
+    printk("debugger trying to exit\n");
     set_value_at_address(ctx->dbg->end_handler, ctx->dbg->end_first);
     free_stack_func_info(ctx->dbg->call_stack);
     free_breakpoint_info_list(ctx->dbg->head);
@@ -340,9 +371,10 @@ void debugger_on_exit(struct exec_context *ctx) {
   }
   // debugge
   if (parent_ctx != NULL && parent_ctx->dbg != NULL) {
-    parent_ctx->cpid = -1;
+    printk("debugee trying to exit\n");
+    parent_ctx->dbg->cpid = -1;
     parent_ctx->state = READY;
-    schedule(parent_ctx);
+    // schedule(parent_ctx);
   }
 }
 /*
@@ -359,7 +391,7 @@ int do_become_debugger(struct exec_context *ctx, void *addr) {
   end_second = get_value_at_address(addr + 1);
   // initial breakpoint at end_address
   // must be called only from child context
-  set_value_at_address(addr, (end_first & 0xFFFFFF00) | 0xCC);
+  set_value_at_address(addr, (end_first & 0xFFFFFFFFFFFFFF00) | INT3_OPCODE);
 
   ctx->dbg = alloc_debug_info();
   ctx->dbg->end_handler = addr;
@@ -373,7 +405,8 @@ int do_become_debugger(struct exec_context *ctx, void *addr) {
   // main is currently on stack for sure
   // ! A breakpoint is set on the start of main()
   ctx->dbg->call_stack = alloc_stack_func_info();
-  ctx->dbg->call_stack->bp = 0;
+  // Check again
+  ctx->dbg->call_stack->bp = 1;
   ctx->dbg->call_stack->addr = NULL;
   ctx->dbg->call_stack->ret_address = END_ADDR;
   ctx->dbg->call_stack->caller = NULL;
@@ -385,6 +418,7 @@ int do_become_debugger(struct exec_context *ctx, void *addr) {
  */
 int do_set_breakpoint(struct exec_context *ctx, void *addr, int flag) {
   // Your code
+  printk("Trying to set breakpoint\n");
   if (ctx == NULL || ctx->dbg == NULL) return -1;
 
   struct breakpoint_info *head, *prev, *head_addr, *new_breakpoint;
@@ -417,8 +451,11 @@ int do_set_breakpoint(struct exec_context *ctx, void *addr, int flag) {
   ctx->dbg->last_id++;
 
   first_inst = get_value_at_address(addr);
+  printk("The first instruction before changing was %x\n", first_inst);
   second_inst = get_value_at_address(addr + 1);
-  set_value_at_address(addr, (first_inst && 0xFFFFFF00) || INT3_OPCODE);
+  set_value_at_address(addr, (first_inst & 0xFFFFFFFFFFFFFF00) | INT3_OPCODE);
+  printk("The first instruction after changing was %x\n",
+         get_value_at_address(addr));
 
   new_breakpoint = alloc_breakpoint_info();
   new_breakpoint->addr = addr;
@@ -460,7 +497,7 @@ int do_remove_breakpoint(struct exec_context *ctx, void *addr) {
   // the call stack of debuggee process (function has been called but not
   // returned yet), AND its end breakpoint enable flag is set to the value 1,
   // then also remove breakpoint should return -1 (error).
-  if (is_on_stack(curr) && curr->end_breakpoint_enable) return -1;
+  if (is_on_stack(curr, addr) && curr->end_breakpoint_enable) return -1;
 
   // valid address
   // You have to completely remove the information about this breakpoint that
@@ -469,7 +506,7 @@ int do_remove_breakpoint(struct exec_context *ctx, void *addr) {
 
   // Also, make sure that when in the future the child process’s execution
   // reaches addr, INT3 shouldn’t be generated anymore.
-  set_value_at_address(addr, curr.first_inst);
+  set_value_at_address(addr, curr->first_inst);
   if (prev == NULL)
     ctx->dbg->head = curr->next;
   else
@@ -538,8 +575,9 @@ int do_backtrace(struct exec_context *ctx, u64 bt_buf) {
   // Your code
   struct stack_func_info *call_stack;
   u64 ret_addr, i;
+  u64 *bt;
 
-  bt_buf = (void *)bt_buf;
+  bt = (u64 *)bt_buf;
   call_stack = ctx->dbg->call_stack;
 
   if (call_stack == NULL) {
@@ -589,43 +627,51 @@ s64 do_wait_and_continue(struct exec_context *ctx) {
   if (ctx == NULL) return -1;
 
   struct exec_context *child_context;
+  struct debug_info *dbg_info;
   u64 curr_addr, curr_instr;
-  struct exec_context *child_context;
-  struct debug_info *dbg_info = ctx->dbg;
+  u32 cpid;
 
-  child_context = get_ctx_by_pid(ctx->dbg->cpid);
-  curr_addr = child_context->regs.entry_rip;
-  curr_instr = get_value_at_address(curr_addr);
+  cpid = ctx->dbg->cpid;
+  if (cpid != -1) {
+    child_context = get_ctx_by_pid(ctx->dbg->cpid);
+    curr_addr = child_context->regs.entry_rip;
+    curr_instr = get_value_at_address(curr_addr);
+    dbg_info = ctx->dbg;
+  }
 
   // Case 3
   if (cpid == -1) {
-    // printk("Child exited\n");
+    printk("Child exited\n");
     ctx->regs.rax = CHILD_EXIT;
   }
   // only first time
   else if (dbg_info->mode == DONE) {
     // confirm this
+    printk("First time child entry\n");
     ctx->regs.rax = curr_addr;
   }
 
   // breakpoint
-  if ((curr_instr & 0xFF) == 0xCC) {
+  else if ((curr_instr & 0xFF) == INT3_OPCODE) {
     // if (dbg_info->mode == RECORD) {
     dbg_info->mode = SINGLE_STEP;
+    printk("Single step child\n");
 
     if (curr_addr == dbg_info->end_handler) {
       // fix current address
       set_value_at_address(curr_addr, dbg_info->end_first);
       // place breakpoint at next instruction
       // assuming push %rbp has size = 1
-      set_value_at_address(curr_addr + 1,
-                           (dbg_info->end_second & 0xFFFFFF00) || 0xCC);
+      set_value_at_address(
+          curr_addr + 1,
+          (dbg_info->end_second & 0xFFFFFFFFFFFFFF00) | INT3_OPCODE);
     } else {
       struct breakpoint_info *curr, *prev;
       get_breakpoint_info(dbg_info->head, curr_addr, &curr, &prev);
       set_value_at_address(curr_addr, curr->first_inst);
-      set_value_at_address(curr_addr + 1,
-                           (curr->second_inst & 0xFFFFFF00) || 0xCC);
+      set_value_at_address(
+          curr_addr + 1,
+          (curr->second_inst & 0xFFFFFFFFFFFFFF00) | INT3_OPCODE);
     }
     // }
   } else {
