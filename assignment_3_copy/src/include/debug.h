@@ -22,8 +22,8 @@ struct breakpoint_info {
   u64 addr;                      // address on which breakpoint is set
   struct breakpoint_info *next;  // pointer to next node in breakpoint list
   int end_breakpoint_enable;     // tells if there should be a end breakpoint
-  u64 first_inst;                // first 4 bytes of function
-  u64 second_inst;               // 4 bytes from start + 1 of function
+  u32 first_inst;                // first 4 bytes of function
+  u32 second_inst;               // 4 bytes from start + 1 of function
 };
 
 /*
@@ -51,8 +51,8 @@ struct debug_info {
   struct breakpoint_info *head;  // head of breakpoint list
   u32 cpid;                      // debugee pid, -1 if debugee exited
   u32 mode;                      // curren execution mode of debugger
-  u64 end_first;                 // 4 bytes from start of end_handler
-  u64 end_second;                // 4 bytes from start + 1 of end_handler
+  u32 end_first;                 // 4 bytes from start of end_handler
+  u32 end_second;                // 4 bytes from start + 1 of end_handler
   u32 last_id;
   void *end_handler;
   struct stack_func_info *call_stack;
@@ -117,8 +117,8 @@ struct breakpoint_info *alloc_breakpoint_info();
 struct stack_func_info *alloc_stack_func_info();
 void free_stack_func_info(struct stack_func_info *ptr);
 void free_call_stack_list(struct stack_func_info *ptr);
-u64 get_value_at_address(u64 addr);
-void set_value_at_address(u64 addr, u64 value);
+u32 get_value_at_address(u64 addr);
+void set_value_at_address(u64 addr, u32 value);
 void update_call_stack();
 void prune_call_stack();
 void get_breakpoint_info(struct breakpoint_info *head, void *addr,

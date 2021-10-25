@@ -115,18 +115,18 @@ void debugger_on_fork(struct exec_context *child_ctx) {
 // Any process can call this be called by any func as we
 // are only reading the code here
 u64 get_value_at_address(u64 addr) {
-  printk("request to get a value\n");
+  // printk("request to get a value\n");
   u64 value;
   asm("mov (%1), %0;" : "=r"(value) : "r"(addr) : "memory");
-  printk("requested value returned\n");
+  // printk("requested value returned\n");
   return value;
 }
 
 // only kernel mode
 void set_value_at_address(u64 addr, u64 value) {
-  printk("request to set a value\n");
+  // printk("request to set a value\n");
   asm("mov %1, (%0);" : : "r"(addr), "r"(value) : "memory");
-  printk("value set successfully\n");
+  // printk("value set successfully\n");
 }
 // remove all the functions which are not on the call stack
 void prune_call_stack() {
@@ -245,7 +245,7 @@ void insert_new_breakpoint(struct breakpoint_info *head,
 // some breakpoint was on function at addr for sure
 int is_on_stack(struct stack_func_info *call_stack, u64 addr) {
   if (call_stack == NULL) return 0;
-  if ((call_stack->bp == 1) && (call_stack->addr = addr)) return 1;
+  if ((call_stack->bp == 1) && (call_stack->addr == addr)) return 1;
   return is_on_stack(call_stack->caller, addr);
 }
 /* This is the int 0x3 handler
@@ -449,12 +449,12 @@ int do_set_breakpoint(struct exec_context *ctx, void *addr, int flag) {
   // successful.
   ctx->dbg->breakpoint_count++;
   ctx->dbg->last_id++;
-
+  printk("Current Address %x\n", addr);
   first_inst = get_value_at_address(addr);
-  printk("The first instruction before changing was %x\n", first_inst);
+  printf("The first instruction before changing was %llx\n", first_inst);
   second_inst = get_value_at_address(addr + 1);
   set_value_at_address(addr, (first_inst & 0xFFFFFFFFFFFFFF00) | INT3_OPCODE);
-  printk("The first instruction after changing was %x\n",
+  printf("The first instruction after changing was %llx\n",
          get_value_at_address(addr));
 
   new_breakpoint = alloc_breakpoint_info();

@@ -25,7 +25,7 @@ int main(u64 arg1, u64 arg2, u64 arg3, u64 arg4, u64 arg5) {
   long ret = 0;
   int i, bp_count, rem1, rem2;
   struct breakpoint bp_info[MAX_BREAKPOINTS];  // store breakpoints info here
-
+  struct registers regs;                       // store registers info here
   ret = become_debugger(do_end_handler);
 
   cpid = fork();
@@ -43,13 +43,41 @@ int main(u64 arg1, u64 arg2, u64 arg3, u64 arg4, u64 arg5) {
     ret = set_breakpoint(fn_2, 1);
 
     printf("In Parent main(). Set Breakpoints.\n");
-
+    info_registers(&regs);
+    printf("Registers:\n");
+    printf("\t RIP: %x\n", regs.entry_rip);
+    printf("\t RSP: %x\n", regs.entry_rsp);
+    printf("\t RBP: %x\n", regs.rbp);
+    printf("\t RAX: %x\n", regs.rax);
+    printf("\t RDI: %x\n", regs.rdi);
+    printf("\t RSI: %x\n", regs.rsi);
+    printf("\t RDX: %x\n", regs.rdx);
+    printf("\t RCX: %x\n", regs.rcx);
+    printf("\t RIP: %x\n", regs.r8);
+    printf("\t RIP: %x\n", regs.r9);
     // fn_1
     ret = wait_and_continue();
 
     printf("In Parent main(). Child in fn_1() beginning.\n");
-
     bp_count = info_breakpoints(bp_info);
+    info_registers(&regs);
+    printf("Registers:\n");
+    printf("\t RIP: %x\n", regs.entry_rip);
+    printf("\t RSP: %x\n", regs.entry_rsp);
+    printf("\t RBP: %x\n", regs.rbp);
+    printf("\t RAX: %x\n", regs.rax);
+    printf("\t RDI: %x\n", regs.rdi);
+    printf("\t RSI: %x\n", regs.rsi);
+    printf("\t RDX: %x\n", regs.rdx);
+    printf("\t RCX: %x\n", regs.rcx);
+    printf("\t RIP: %x\n", regs.r8);
+    printf("\t RIP: %x\n", regs.r9);
+    u64 ret_addr;
+    asm volatile("mov (%1),%0;"
+                 : "=r"(ret_addr)
+                 : "r"(regs.entry_rsp)
+                 : "memory");
+    printf("Updated Address: %x\n", ret_addr);
 
     printf("Breakpoints:\n");
     for (int i = 0; i < bp_count; i++) {
@@ -61,6 +89,19 @@ int main(u64 arg1, u64 arg2, u64 arg3, u64 arg4, u64 arg5) {
     ret = wait_and_continue();
 
     printf("In Parent main(). Child in fn_1() end.\n");
+    info_registers(&regs);
+
+    printf("Registers:\n");
+    printf("\t RIP: %x\n", regs.entry_rip);
+    printf("\t RSP: %x\n", regs.entry_rsp);
+    printf("\t RBP: %x\n", regs.rbp);
+    printf("\t RAX: %x\n", regs.rax);
+    printf("\t RDI: %x\n", regs.rdi);
+    printf("\t RSI: %x\n", regs.rsi);
+    printf("\t RDX: %x\n", regs.rdx);
+    printf("\t RCX: %x\n", regs.rcx);
+    printf("\t RIP: %x\n", regs.r8);
+    printf("\t RIP: %x\n", regs.r9);
 
     bp_count = info_breakpoints(bp_info);
     printf("Breakpoints:\n");
