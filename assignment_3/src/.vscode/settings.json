@@ -1,6 +1,3 @@
 {
-	"C_Cpp.errorSquiggles": "Enabled",
-	"files.associations": {
-		"cstdio": "c"
-	}
+	"C_Cpp.errorSquiggles": "Enabled"
 }

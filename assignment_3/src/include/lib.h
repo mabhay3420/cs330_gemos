@@ -26,7 +26,7 @@ extern int memcmp(char *,char *,u32);
 extern int memcpy(char *,char *,u32);
 
 extern void print_user(char *, int);
-extern int printf(char *,...);
+//extern int printf(char *,...);
 extern int printk(char *,...);
 extern int sprintf(char*, char *,...);
 extern int sprintk(char*, char *,...);

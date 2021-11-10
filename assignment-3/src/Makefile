@@ -25,4 +25,4 @@ gemOS.kernel: $(OBJS) user/init.o user/lib.o
 
 .Phony: clean
 clean:
-	rm -f debug.o;  rm -f entry.o; rm -f gemOS.kernel; rm -f user/*.o; 
+	rm -f *.o; rm -f gemOS.kernel; rm -f user/*.o;

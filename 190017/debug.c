@@ -209,7 +209,6 @@ long int3_handler(struct exec_context *ctx) {
 
   // Schedule the debugger
   ctx->state = WAITING;
-  parent_ctx->regs.rax = entry_addr;
   parent_ctx->state = READY;
   schedule(parent_ctx);
 }
@@ -228,7 +227,7 @@ void debugger_on_exit(struct exec_context *ctx) {
   // debugger
   if (ctx != NULL && ctx->dbg != NULL) {
     *((u32 *)ctx->dbg->end_handler) = ctx->dbg->end_first;
-    // should be null anyway
+    //should be null anyway
     free_stack_func_info(ctx->dbg->call_stack);
     free_breakpoint_info_list(ctx->dbg->head);
     free_debug_info(ctx->dbg);
@@ -434,8 +433,7 @@ s64 do_wait_and_continue(struct exec_context *ctx) {
         free_stack_func_info(call_stack);
       }
     }
-    // no need here
-    // ctx->regs.rax = curr_addr;
+    ctx->regs.rax = curr_addr;
   }
 
   ctx->state = WAITING;
