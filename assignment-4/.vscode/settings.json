@@ -1,0 +1,7 @@
+{
+	"files.associations": {
+		"clone_threads.h": "c",
+		"ulib.h": "c",
+		"gthread.h": "c"
+	}
+}

@@ -1,0 +1,10 @@
+{
+	"files.associations": {
+		"gthread.h": "c",
+		"entry.h": "c",
+		"context.h": "c",
+		"clone_threads.h": "c",
+		"memory.h": "c",
+		"mmap.h": "c"
+	}
+}
