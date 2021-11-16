@@ -95,21 +95,34 @@ static int get_flag(int perm) {
       return 0x5;  // write access is not allowed
     case PROT_READ | PROT_WRITE | TP_SIBLINGS_NOACCESS:
       return 0x1;  // user access is not allowed
-    default:
-      printk("get_flag:: strage permissions\n");
+                   // default:
+                   //   printk("get_flag:: strage permissions\n");
   }
   return 0;
 }
 
 static int valid_access(int flag, int error_code) {
-  // ! CheckPoint : What other types of error are possible
-
   if (!(flag >> 2)) return 0;  // siblings not allowed
+
+  // ! CheckPoint : What other types of error are possible
+  // only 4 5 6 7 possible
+  // 4 -> read request to unmapped page
+  // 6 -> write request to unmapped page
+
+  // ? 5 -> read request to a writable page
+  // 7 -> write request to read only page
 
   // write is requested no write permissions
   if ((error_code & PF_ERROR_WR) & (!(flag & PF_ERROR_WR))) return 0;
 
-  return 1;  // read is always allowed
+  // Illegal user mode read access to mapped page cannot be fixed
+  // what can we do? read access is already give, no changes possible
+
+  // this can occur when someone accesses NULL (0x0). NULL is a special
+  // address reserved by OS and access to this address is illegal
+  if (error_code == 0x5) return 0;
+
+  return 1;  // Okay allowed
 }
 
 static struct thread_private_map *find_th_pmap(struct exec_context *current,
@@ -277,7 +290,6 @@ int handle_private_ctxswitch(struct exec_context *current,
     parent = next;
   }
 
-  // for other threads the flag depends on protection
   th = &parent->ctx_threads->threads[0];
   // atmax 4 iterations
   for (int i = 0; i < MAX_THREADS; i++, th++) {
@@ -287,6 +299,7 @@ int handle_private_ctxswitch(struct exec_context *current,
     for (int i = 0; i < MAP_TH_PRIVATE; i++, thmap++) {
       if (!thmap->owner) continue;
 
+      // for other threads the flag depends on protection
       if ((th != next_thread) && (next_thread != NULL))
         flag = get_flag(thmap->flags);  // neither parent nor owner
       else

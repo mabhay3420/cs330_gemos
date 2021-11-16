@@ -1,37 +1,66 @@
-#include <gthread.h>
-#include <ulib.h>
-/*Thread functions must be declared as static*/
-static void *thfunc1(void *arg) {
-  int *ptr = (int *)arg;
-  for (int ctr = 0; ctr < *ptr; ++ctr) {
-    printf("[pid %d]Arg is %d\n", getpid(), *ptr);
-  }
-  sleep(*ptr);
-  *ptr += 100;
-  exit(0);
+#include<ulib.h>
+#include<gthread.h>
+
+
+static void *thfunc1(void *arg){
+
+   int *a = (int *)arg;
+              *a = 1; 
+            return arg;
 }
 
-int main(u64 arg1, u64 arg2, u64 arg3, u64 arg4, u64 arg5) {
-  void *stackp;
-  int thpid;
-  int tharg;
-  // clonetc1: create a simple thread using clone
+static void *thfunc2(void *arg){
+	
+     // printf("excuted func2 by thread 2");
+     int *b = (int *)arg;
+              *b = 2; 
+              sleep(10);
+            return arg;
+}
+static void *thfunc3(void *arg){
+	
+     // printf("excuted func2 by thread 2");
+     int *b = (int *)arg;
+              *b = 3; 
+              sleep(10);
+            return arg;
+}static void *thfunc4(void *arg){
+	
+     // printf("excuted func2 by thread 2");
+     int *b = (int *)arg;
+              *b = 4; 
+              sleep(10);
+            return arg;
+}static void *thfunc5(void *arg){
+	
+     // printf("excuted func2 by thread 2");
+     int *b = (int *)arg;
+              *b = 5; 
+              sleep(10);
+            return arg;
+}
 
-  stackp = mmap(NULL, 8192, PROT_READ | PROT_WRITE, 0);
-  if (!stackp || stackp == MAP_ERR) {
-    printf("Can not allocated stack\n");
-    exit(0);
-  }
-  tharg = 10;
-  thpid = clone(&thfunc1, ((u64)stackp) + 8192,
-                &tharg); // Returns the PID of the thread
-  if (thpid <= 0) {
-    printf("Error creating thread!\n");
-    exit(0);
-  }
-  make_thread_ready(thpid);
-  printf("Created thread %d\n", thpid);
-  sleep(20); // Thread sleeps for 10 units, let us sleep for 20 units
+int main(u64 arg1, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
+{ 
+   int s_count[8];
+  int tid[8];
+  int ctr;
+  void *retval;
+  //tc1
+  // create one thread. and join should be success (pthread_exit)
+  for(ctr=0; ctr<4; ++ctr){
+        s_count[ctr] = ctr + 1;
+        if(gthread_create(&tid[ctr], thfunc1, &s_count[ctr]) < 0)
+        {
+             printf("gthread_create failed\n");
+             exit(-1);
+        }
+	printf("Created thread: %d\n", tid[ctr]);
+   }        
+  for(ctr=0; ctr<4; ++ctr){
+        retval = gthread_join(tid[ctr]);
+        printf("Thread %d returned is %d\n", ctr , *((int *)retval));
+   }
 
-  return 0;
+     return 0;
 }

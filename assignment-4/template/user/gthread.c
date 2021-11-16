@@ -21,21 +21,21 @@ static void gthread_return() {
 
 int gthread_create(int *tid, void *(*fc)(void *), void *arg) {
   if (tinfo.num_threads == MAX_THREADS) {
-    printf("gthread_create:: No more threads can be created\n");
+    // printf("gthread_create:: No more threads can be created\n");
     return -1;
   }
 
   // allocate a stack for thread
   void *stackp = mmap(NULL, TH_STACK_SIZE, PROT_READ | PROT_WRITE, 0);
   if (!stackp || stackp == MAP_ERR) {
-    printf("gthread_create:: Stack Allocation Failed\n");
+    // printf("gthread_create:: Stack Allocation Failed\n");
     return -1;
   }
   *(u64 *)(((u64)stackp) + TH_STACK_SIZE - 8) = (u64)(&gthread_return);
 
   long thpid = clone(fc, (u64)stackp + TH_STACK_SIZE, arg);
   if (thpid <= 0) {
-    printf("gthread_create:: Thread Cloning Failed\n");
+    // printf("gthread_create:: Thread Cloning Failed\n");
     return -1;
   }
 
@@ -53,6 +53,10 @@ int gthread_create(int *tid, void *(*fc)(void *), void *arg) {
   curr_thread->pid = thpid;
   curr_thread->stack_addr = stackp + TH_STACK_SIZE;
   curr_thread->status = TH_STATUS_ALIVE;
+  // in case return address is not filled simply return
+  // NULL, helpful in case of segfault
+  curr_thread->ret_addr = NULL;
+
   tinfo.num_threads++;
 
   make_thread_ready(thpid);
@@ -73,10 +77,10 @@ int gthread_exit(void *retval) {
   }
 
   if (ctr == MAX_THREADS) {
-    printf(
-        "gthread_exit:: information of thread [%d] calling exit is not "
-        "updated ! Probably status not updated properly\n",
-        thpid);
+    // printf(
+    // "gthread_exit:: information of thread [%d] calling exit is not "
+    // "updated ! Probably status not updated properly\n",
+    // thpid);
     return -1;
   }
 
@@ -91,30 +95,70 @@ void *gthread_join(int tid) {
   int ctr;
   struct thread_info *curr_thread = &tinfo.threads[0];
   for (ctr = 0; ctr < MAX_THREADS; ctr++, curr_thread++) {
+    if (curr_thread->status == TH_STATUS_UNUSED) continue;
     if (curr_thread->tid == tid) break;
   }
 
   if (ctr == MAX_THREADS) {
-    return NULL;
+    return NULL;  // join called on dead thread
   }
 
   switch (curr_thread->status) {
-    case TH_STATUS_UNUSED:
-      return NULL;  // join called on dead thread
-
     case TH_STATUS_USED:
       break;  // value must be available
 
     case TH_STATUS_ALIVE:
       // return of value 0 from wait call just signifies that one
-      // round of schedulling was succesful. In order to be sure
-      // that thread has actually completed its execution we need
-      // to observe the status flag set by gthread_exit()
-      while (curr_thread->status != TH_STATUS_USED) {
-        if (wait_for_thread(curr_thread->pid) < 0) {
-          printf("gthread_join:: Thread died or invalid thread pid\n");
-          return NULL;
+      // round of schedulling was succesful.
+      while (1) {
+        // !!! PIDs ARE REUSABLE so don't depend on return value of wait
+
+        // Clearly thread has some valid pid in the starting, so returning error
+        // means the thread has exited and either the pid is not assigned or
+        // assigned to some other thread. No other case is possible
+        int sig = wait_for_thread(curr_thread->pid);
+
+        // 1. Thread returned normally
+        // curr_thread->ret_addr =  NON-NULL(set by gthread_exit())
+        if (curr_thread->ret_addr) {
+          break;
         }
+
+        // sig < 0 : invalid pid : 2 cases
+        // 1. segfault() -> process exits -> pid available but not reassigned ->
+        //    wait call -> (invalid pid()) curr_thread->ret_val = NULL (default)
+        //    as gthread_exit() not called
+
+        // 2. normal exit -> pid available but not reassigned ( invalid pid() )
+        //    -> wait call -> (curr_thread-> ret_val) must have been set by
+        //    gthread_exit()
+        if (sig < 0) {
+          break;
+        }
+
+        // sig = 0 and curr_thread->ret_val = NULL -> pid is valid : 2 cases
+        // 1. Original thread exited -> pid available to be reassigned -> pid
+        //    reassigned to some "other thread" and the "other thread" is in
+        //    execution -> curr_thread->ret_addr = NULL ( NON-NULL is already
+        //    handler above )
+        // 2. Original Thread still in execution -> (curr_thread -> ret_addr =
+        //    NULL(the default one))
+
+        // valid pid but must check whether it is reassigned or not?
+        struct thread_info *other_thread = &tinfo.threads[0];
+        for (ctr = 0; ctr < MAX_THREADS; ctr++, other_thread++) {
+          if (other_thread->tid == curr_thread->tid)
+            continue;  // its the same thread
+          if (other_thread->pid == curr_thread->pid) break;  // reassigned
+        }
+
+        // something fishy, we waited for wrong thread, the original
+        // already exited with return value NULL
+        if (ctr != MAX_THREADS) {
+          break;
+        }
+
+        // thread not finished yet, wait again
       }
       break;
   }
@@ -124,7 +168,7 @@ void *gthread_join(int tid) {
   int err = munmap((void *)((u64)curr_thread->stack_addr - TH_STACK_SIZE),
                    TH_STACK_SIZE);
   if (err < 0) {
-    printf("gthread_join :: error while unmapping the stack\n");
+    // printf("gthread_join :: error while unmapping the stack\n");
     return NULL;
   }
 
@@ -174,18 +218,22 @@ void *gmalloc(u32 size, u8 alloc_flag) {
   // get current thread
   int thpid = getpid();
   if (thpid < 0) {
-    printf("gmalloc:: invalid thread pid\n");
+    // printf("gmalloc:: invalid thread pid\n");
     return NULL;
   }
 
   int ctr;
   struct thread_info *curr_thread = &tinfo.threads[0];
   for (ctr = 0; ctr < MAX_THREADS; ctr++, curr_thread++) {
+    // a pid can be assigned to multiple threads,
+    // though atmost one will be Alive
+    if (curr_thread->status != TH_STATUS_ALIVE) continue;
+
     if (curr_thread->pid == thpid) break;
   }
 
   if (ctr == MAX_THREADS) {
-    printf("gmalloc:: Not a registered thread\n");
+    // printf("gmalloc:: Not a registered thread\n");
     return NULL;
   }
 
@@ -195,13 +243,13 @@ void *gmalloc(u32 size, u8 alloc_flag) {
   }
 
   if (ctr == MAP_TH_PRIVATE) {
-    printf("gmalloc:: No more mappings allowed\n");
+    // printf("gmalloc:: No more mappings allowed\n");
     return NULL;
   }
 
   void *addr = mmap(NULL, size, flag, MAP_TH_PRIVATE);
   if (!addr || addr == MAP_ERR) {
-    printf("gmalloc:: mmap failed\n");
+    // printf("gmalloc:: mmap failed\n");
     return NULL;
   }
 
@@ -219,7 +267,7 @@ void *gmalloc(u32 size, u8 alloc_flag) {
 int gfree(void *ptr) {
   int thpid = getpid();
   if (thpid < 0) {
-    printf("gfree:: Invalid pid\n");
+    // printf("gfree:: Invalid pid\n");
     return -1;
   }
 
@@ -235,10 +283,10 @@ int gfree(void *ptr) {
   }
 
   if (ctr == MAX_THREADS) {
-    printf(
-        "gfree:: BUG!!! Thread information of [%d] in userspace not update "
-        "properly\n",
-        thpid);
+    // printf(
+    // "gfree:: BUG!!! Thread information of [%d] in userspace not update "
+    // "properly\n",
+    // thpid);
     return -1;
   }
 
@@ -249,13 +297,14 @@ int gfree(void *ptr) {
   }
 
   if (ctr == MAP_TH_PRIVATE) {
-    printf("gfree:: Invalid address or thread is not the owner of address\n");
+    // printf("gfree:: Invalid address or thread is not the owner of
+    // address\n");
     return -1;
   }
 
   // update the userspace information
   if (munmap(ptr, curr_mmap->length) < 0) {
-    printf("gfree:: munmap failed\n");
+    // printf("gfree:: munmap failed\n");
     return -1;
   }
 
