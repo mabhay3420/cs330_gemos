@@ -11,26 +11,30 @@ static void *thfunc1(void *arg) {
   // in thread argument i.e., &th_priv_addr
   char *ptr = (char *)gmalloc(8192, GALLOC_OWNONLY);
 
-  printf("thfunc1:: ptr : %x\n", ptr);
+  // printf("thfunc1:: ptr : %x\n", ptr);
 
   for (ctr = 0; ctr < 100; ++ctr) {
     ptr[ctr] = 'a' + (ctr % 26);
-
   }
   ptr[ctr] = 0;
   *th_priv_ptr = (u64)ptr;
-  sleep(10); // Need to sleep for other thread to finish
+  // printf("thfunc1:: ptr = %x\n", *th_priv_ptr);
+  sleep(10);  // Need to sleep for other thread to finish
+  // printf("thfunc1:: done sleeping\n");
   gfree((void *)ptr);
+  // printf("thfunc1:: done freeing\n");
   return NULL;
 }
 
 static void *thfunc2(void *arg) {
   char *ptr;
   u64 *th_priv_ptr = (u64 *)arg;
-  while (*th_priv_ptr == 0)
-    sleep(1);
+  while (*th_priv_ptr == 0) sleep(1);
+  // printf("[3] tried to access private pointer, should raise an error\n");
+  // printf("thfunc2:: ptr = %x\n", *th_priv_ptr);
   ptr = (char *)*th_priv_ptr;
-  printf("%s\n", ptr); // Reading only, should be allowed
+  *ptr = 'c';
+  printf("%s\n", ptr);  // Is not allowed
   return NULL;
 }
 

@@ -23,13 +23,11 @@ struct thread *find_unused_thread(struct exec_context *ctx) {
   int i;
   struct thread *th;
   struct ctx_thread_info *tinfo = ctx->ctx_threads;
-  if (ctx->type != EXEC_CTX_USER || !tinfo)
-    return NULL;
+  if (ctx->type != EXEC_CTX_USER || !tinfo) return NULL;
 
   for (i = 0; i < MAX_THREADS; ++i) {
     th = &tinfo->threads[i];
-    if (th->status == TH_UNUSED)
-      return th;
+    if (th->status == TH_UNUSED) return th;
   }
   return NULL;
 }
@@ -39,13 +37,11 @@ struct thread *find_thread_from_pid(struct exec_context *ctx, int thread_pid) {
   int i;
   struct thread *th;
   struct ctx_thread_info *tinfo = ctx->ctx_threads;
-  if (ctx->type != EXEC_CTX_USER || !tinfo)
-    return NULL;
+  if (ctx->type != EXEC_CTX_USER || !tinfo) return NULL;
 
   for (i = 0; i < MAX_THREADS; ++i) {
     th = &tinfo->threads[i];
-    if (th->pid == thread_pid)
-      return th;
+    if (th->pid == thread_pid) return th;
   }
   return NULL;
 }
@@ -83,8 +79,7 @@ void cleanup_all_threads(struct exec_context *ctx) {
   int i;
   struct thread *th;
   struct ctx_thread_info *tinfo = ctx->ctx_threads;
-  if (!isProcess(ctx) || !tinfo)
-    return;
+  if (!isProcess(ctx) || !tinfo) return;
 
   for (i = 0; i < MAX_THREADS; ++i) {
     th = &tinfo->threads[i];
@@ -94,7 +89,7 @@ void cleanup_all_threads(struct exec_context *ctx) {
     }
   }
   ctx->state =
-      UNUSED; // Hack as its made ready while calling handle thread exit
+      UNUSED;  // Hack as its made ready while calling handle thread exit
 }
 
 // Find a 'free' thread private map meta-data struct
@@ -102,8 +97,7 @@ static struct thread_private_map *find_unused_map(struct thread *th) {
   int ctr;
   struct thread_private_map *thmap = &th->private_mappings[0];
   for (ctr = 0; ctr < MAX_PRIVATE_AREAS; ++ctr, thmap++) {
-    if (!thmap->owner)
-      return thmap;
+    if (!thmap->owner) return thmap;
   }
   return NULL;
 }
@@ -139,7 +133,7 @@ int handle_thread_private_mmap(u64 addr, u32 length, u32 prot) {
   struct thread *th;
   struct thread_private_map *thmap;
 
-  if (!isThread(current)) // this type of mmap allowed only from threads
+  if (!isThread(current))  // this type of mmap allowed only from threads
     return -1;
   parent = get_ctx_by_pid(current->ppid);
 
@@ -148,8 +142,7 @@ int handle_thread_private_mmap(u64 addr, u32 length, u32 prot) {
     return -1;
   }
   thmap = find_unused_map(th);
-  if (!thmap)
-    return -1;
+  if (!thmap) return -1;
   // Now note down the mapping details
   thmap->start_addr = addr;
   thmap->length = length;
@@ -167,8 +160,7 @@ struct thread *find_thread_from_address(struct exec_context *ctx, u64 addr,
 
   struct ctx_thread_info *tinfo = ctx->ctx_threads;
 
-  if (!isProcess(ctx) || !tinfo)
-    return NULL;
+  if (!isProcess(ctx) || !tinfo) return NULL;
 
   for (i = 0; i < MAX_THREADS; ++i) {
     th = &tinfo->threads[i];
@@ -193,7 +185,7 @@ void handle_thread_private_unmmap(u64 addr, u32 length) {
 
   if (isProcess(current)) {
     th = find_thread_from_address(current, addr, length, &thmap);
-    if (!th) // It is not of our interest
+    if (!th)  // It is not of our interest
       return;
   } else {
     th = find_thread_from_pid(parent, current->pid);
@@ -231,8 +223,7 @@ long do_wait_for_thread(long pid) {
   struct exec_context *ctx = get_current_ctx();
   if (thctx->type != EXEC_CTX_USER_TH || thctx->state == UNUSED ||
       thctx->state == EXITING || thctx->ppid != ctx->pid) {
-    if (thctx->state == EXITING)
-      thctx->state = UNUSED;
+    if (thctx->state == EXITING) thctx->state = UNUSED;
     return -EINVAL;
   }
   ctx->regs.rax = 0;

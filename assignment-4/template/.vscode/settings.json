@@ -5,6 +5,7 @@
 		"context.h": "c",
 		"clone_threads.h": "c",
 		"memory.h": "c",
-		"mmap.h": "c"
+		"mmap.h": "c",
+		"ulib.h": "c"
 	}
 }

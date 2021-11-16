@@ -1,56 +1,37 @@
 #include <gthread.h>
 #include <ulib.h>
-
-/*XXX   Do not declare global or static variables in the test cases*/
-
 /*Thread functions must be declared as static*/
 static void *thfunc1(void *arg) {
-  int ctr;
-  u64 *th_priv_ptr = (u64 *)arg;
-  // Allocate and place the pointer
-  // in thread argument i.e., &th_priv_addr
-  char *ptr = (char *)gmalloc(8192, GALLOC_OWNONLY);
-
-  printf("thfunc1:: ptr : %x\n", ptr);
-
-  for (ctr = 0; ctr < 100; ++ctr) {
-    ptr[ctr] = 'a' + (ctr % 26);
-
+  int *ptr = (int *)arg;
+  for (int ctr = 0; ctr < *ptr; ++ctr) {
+    printf("[pid %d]Arg is %d\n", getpid(), *ptr);
   }
-  ptr[ctr] = 0;
-  *th_priv_ptr = (u64)ptr;
-  sleep(10); // Need to sleep for other thread to finish
-  gfree((void *)ptr);
-  return NULL;
-}
-
-static void *thfunc2(void *arg) {
-  char *ptr;
-  u64 *th_priv_ptr = (u64 *)arg;
-  while (*th_priv_ptr == 0)
-    sleep(1);
-  ptr = (char *)*th_priv_ptr;
-  printf("%s\n", ptr); // Reading only, should be allowed
-  return NULL;
+  sleep(*ptr);
+  *ptr += 100;
+  exit(0);
 }
 
 int main(u64 arg1, u64 arg2, u64 arg3, u64 arg4, u64 arg5) {
-  u64 th_priv_addr = 0;
-  int tid1, tid2;
-  if (gthread_create(&tid1, thfunc1, (void *)&th_priv_addr) < 0) {
-    printf("gthread_create failed\n");
-    exit(-1);
-  }
-  printf("Created thread: %d\n", tid1);
+  void *stackp;
+  int thpid;
+  int tharg;
+  // clonetc1: create a simple thread using clone
 
-  if (gthread_create(&tid2, thfunc2, (void *)&th_priv_addr) < 0) {
-    printf("gthread_create failed\n");
-    exit(-1);
+  stackp = mmap(NULL, 8192, PROT_READ | PROT_WRITE, 0);
+  if (!stackp || stackp == MAP_ERR) {
+    printf("Can not allocated stack\n");
+    exit(0);
   }
-  printf("Created thread: %d\n", tid2);
-  gthread_join(tid1);
-  printf("Thread %d returned\n", tid1);
-  gthread_join(tid2);
-  printf("Thread %d returned\n", tid2);
+  tharg = 10;
+  thpid = clone(&thfunc1, ((u64)stackp) + 8192,
+                &tharg); // Returns the PID of the thread
+  if (thpid <= 0) {
+    printf("Error creating thread!\n");
+    exit(0);
+  }
+  make_thread_ready(thpid);
+  printf("Created thread %d\n", thpid);
+  sleep(20); // Thread sleeps for 10 units, let us sleep for 20 units
+
   return 0;
 }

@@ -46,7 +46,7 @@ GemOS shell again!
 
 -----------------------------------------
 
-/// test case 4 expected output ///
+///test case 4 expected output ///
 
 
 GemOS# init
